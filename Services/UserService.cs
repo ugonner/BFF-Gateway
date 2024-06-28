@@ -34,7 +34,7 @@ internal sealed class UserService : IUserService
     public async Task<GenericResult<UserDTO>> RegisterUser(UserDTO user)
     {
         var mappedUser = mapper.Map<User>(user);
-        mappedUser.Password = BCrypt.Net.BCrypt.EnhancedHashPassword(mappedUser.Password);
+        mappedUser.Password = BCrypt.Net.BCrypt.HashPassword(mappedUser.Password);
         mappedUser.RoleId = 3;
         repositoryManager.UserRepository.CreateUser(mappedUser);
         await repositoryManager.Save();
@@ -47,9 +47,25 @@ internal sealed class UserService : IUserService
         var usr = await repositoryManager.UserRepository.FindUser((User u) => (u.UserName == user.UserName));
         if (usr is null) return new GenericResult<TokenDTO>().Errored("no user found, check login credentials", 404);
         if(!BCrypt.Net.BCrypt.Verify(user.Password, usr.Password)) return result.Errored("Wrong credentials", 400);
-        return result.Successed("user created", 200, new TokenDTO {
-            Token = GenerateJwtToken(usr),
-            RefreshToken = GenerateRefreshToken()
+        var refreshToken = GenerateRefreshToken();
+        var token = GenerateJwtToken(usr);
+        /// update refresh token
+        //usr.RefreshToken = RefreshToken;
+        //repositoryManager.UserRepository.Update(usr);
+        await repositoryManager.TokenRepository.Create(
+            new AuthToken(){
+                UserId = usr.UserId,
+                AccessToken = token,
+                RefreshToken = refreshToken,
+                Expires = DateTime.Now.AddDays(30)
+            }
+        );
+        
+        await repositoryManager.Save();
+        
+        return result.Successed("login succesful", 200, new TokenDTO {
+            Token = token,
+            RefreshToken = refreshToken
         });
     }
 
@@ -59,10 +75,11 @@ internal sealed class UserService : IUserService
         var jwtHandler = new JwtSecurityTokenHandler();
         var jwtSettings = _configSettings.GetSection("jwt");
 
-        var key = Encoding.ASCII.GetBytes($"{jwtSettings["key"]}");
-
+        var jwtKey = jwtSettings["key"].ToString();
+        var key = Encoding.ASCII.GetBytes(jwtKey);
+        
         Claim[] claims = new Claim[]{
-            new Claim(ClaimTypes.UserData, JsonSerializer.Serialize(user)),
+            new Claim(ClaimTypes.Name, user.UserName),
             new Claim(ClaimTypes.Role, user.RoleId.ToString())
             };
         var tokenDescription = new SecurityTokenDescriptor()
@@ -82,7 +99,10 @@ internal sealed class UserService : IUserService
     public async Task<GenericResult<string>> ReValidateRefreshToken(RefreshTokenDTO tokens)
     {
         var result = new GenericResult<string>();
-        _user = await repositoryManager.UserRepository.FindOne((u) => u.RefreshToken == tokens.RefreshToken, false);
+        //_user = await repositoryManager.UserRepository.FindOne((u) => u.RefreshToken == tokens.RefreshToken, false);
+        AuthToken authToken = await repositoryManager.TokenRepository.FindToken(tokens);
+        _user = authToken.User;
+
         if (_user == null) return result.Errored("no such refresh token exists", 404);
 
 
@@ -117,6 +137,7 @@ internal sealed class UserService : IUserService
         if(res.Status)
         {
             _user.RefreshToken = newRefreshToken;
+            
             repositoryManager.UserRepository.Update(_user);
             await repositoryManager.Save();
             return result.Successed("token updated", 200, new RefreshTokenDTO()

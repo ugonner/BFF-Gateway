@@ -15,4 +15,5 @@ public class RepositoryContext: DbContext
 
     DbSet<User> Users {get; set;}
     DbSet<Role> Roles {get; set;}
+    DbSet<AuthToken> AuthTokens  {get; set;}
 }

@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 using Contracts.ServiceContracts;
 using Shared;
 using Shared.DTOs.UserDTOs;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc.ModelBinding.Binders;
 
 [ApiController]
 [Route("{Controller}")]
@@ -29,6 +31,21 @@ public class UserController : ControllerBase
     {
         var res = await _serviceManager.UserService.LoginUser(payload);
         return Ok(res);
+    }
+
+    [Authorize]
+    [HttpGet]
+    public IActionResult GetUsers()
+    {
+        var result =  _serviceManager.UserService.GenerateRefreshToken();
+        return Ok(result);
+    }
+
+    [HttpPost("refresh-token")]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenDTO payload)
+    {
+        var result = await _serviceManager.UserService.ReValidateRefreshToken(payload);
+        return Ok(result);
     }
 
 }
